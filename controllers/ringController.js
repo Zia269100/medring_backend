@@ -7,16 +7,29 @@ import { generateEmergencyPlan } from "../services/aiEngine.js";
 import { sendSMS } from "../services/sms.js";
 
 /* ===================================================
+UTILITY
+=================================================== */
+const cleanToken = (t = "") =>
+  String(t).trim().toLowerCase();
+
+
+/* ===================================================
 REGISTER RING
+POST /register-ring
 =================================================== */
 export const registerRing = async (req, res) => {
   try {
     let { token, name, age, bloodGroup, emergencyContact } = req.body;
 
-    token = token.trim().toLowerCase(); // 🔥 FIX
+    token = cleanToken(token);
 
     if (!token)
       return res.status(400).json({ msg: "Token required" });
+
+    /* 🔥 prevent duplicate token */
+    const exists = await Ring.findOne({ token });
+    if (exists)
+      return res.status(400).json({ msg: "Ring already registered" });
 
     const user = await User.create({
       name,
@@ -33,28 +46,29 @@ export const registerRing = async (req, res) => {
     res.json({ message: "Registered successfully" });
 
   } catch (err) {
-    console.error(err);
+    console.error("REGISTER ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
 
+
 /* ===================================================
 GET RING DATA + AI PLAN
-/ring/:token?situation=seizure
+GET /ring/:token?situation=seizure
 =================================================== */
 export const getRingData = async (req, res) => {
   try {
-    const { token } = req.params;
+    const token = cleanToken(req.params.token);
     const { situation = "unknown" } = req.query;
 
-    const ring = await Ring.findOne({ token });
+    const ring = await Ring.findOne({ token }).lean();
 
     if (!ring)
       return res.json({ newUser: true });
 
-    const user = await User.findById(ring.userId);
-    const medical = await MedicalRecord.findOne({ userId: user._id });
+    const user = await User.findById(ring.userId).lean();
+    const medical = await MedicalRecord.findOne({ userId: user._id }).lean();
 
     const plan = generateEmergencyPlan(medical || {}, situation);
 
@@ -65,14 +79,16 @@ export const getRingData = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("GET RING ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
 
+
 /* ===================================================
 UPDATE MEDICAL INFO
+POST /medical/update
 =================================================== */
 export const updateMedical = async (req, res) => {
   try {
@@ -87,10 +103,11 @@ export const updateMedical = async (req, res) => {
     res.json(data);
 
   } catch (err) {
-    console.error(err);
+    console.error("MEDICAL UPDATE ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
 
 
 /* ===================================================
@@ -99,7 +116,9 @@ POST /incident
 =================================================== */
 export const createIncident = async (req, res) => {
   try {
-    const { token, situation = "unknown", location } = req.body;
+    let { token, situation = "unknown", location } = req.body;
+
+    token = cleanToken(token);
 
     const ring = await Ring.findOne({ token });
     if (!ring)
@@ -116,19 +135,24 @@ export const createIncident = async (req, res) => {
       time: new Date()
     });
 
-    /* 🔥 SMART SMS */
+    /* 🔥 SMART SMS (safe) */
     if (user?.emergencyContact) {
-      await sendSMS(
-        user.emergencyContact,
-        `${user.name} is ${situation}. Immediate help required.\nLocation: ${location || "unknown"}`
-      );
+      try {
+        await sendSMS(
+          user.emergencyContact,
+          `${user.name} is ${situation}.
+Immediate help required.
+Location: ${location || "unknown"}`
+        );
+      } catch (smsErr) {
+        console.log("SMS failed but continuing:", smsErr.message);
+      }
     }
 
     res.json(incident);
 
   } catch (err) {
-    console.error(err);
+    console.error("INCIDENT ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };
-
