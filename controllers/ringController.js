@@ -11,7 +11,9 @@ REGISTER RING
 =================================================== */
 export const registerRing = async (req, res) => {
   try {
-    const { token, name, age, bloodGroup, emergencyContact } = req.body;
+    let { token, name, age, bloodGroup, emergencyContact } = req.body;
+
+    token = token.trim().toLowerCase(); // 🔥 FIX
 
     if (!token)
       return res.status(400).json({ msg: "Token required" });
@@ -129,3 +131,4 @@ export const createIncident = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
